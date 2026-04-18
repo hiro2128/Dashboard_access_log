@@ -222,6 +222,59 @@ def plot_heatmap(z, x_labels, y_labels, colorscale: str,
     return fig
 
 
+def plot_top_n_section(
+    df_src: pd.DataFrame,
+    col: str,
+    label: str,
+    icon: str,
+    color_scale: str,
+    top_n: int = 5,
+    height: int = 320,
+) -> None:
+    """
+    指定列の上位N件をグラフ＋表で Streamlit に描画する。
+
+    User Deep Dive の Dashboard Top 5 / Project Top 5 は、
+    対象列・表示名・カラースケールが異なるだけで処理が同一のため、
+    本関数に統合して重複を排除している。
+
+    引数:
+    - df_src      : 対象ユーザーに絞り込み済みの DataFrame
+    - col         : 集計対象の列名（例: "workbook", "project"）
+    - label       : 表示用の列ヘッダー名（例: "Dashboard", "Project"）
+    - icon        : セクションタイトルに付与する絵文字
+    - color_scale : 棒グラフのカラースケール名（Plotly 形式）
+    - top_n       : 表示する上位件数（デフォルト: 5）
+    - height      : グラフの高さ（px）
+    """
+    st.markdown(f"#### {icon} {label} Top {top_n}")
+
+    # 上位N件を集計し、順位・構成比を付与する
+    top_df = df_src[col].value_counts().head(top_n).reset_index()
+    top_df.columns = [label, "Access Count"]
+    top_df.insert(0, "Rank", range(1, len(top_df) + 1))
+    top_df["Share (%)"] = (
+        top_df["Access Count"] / top_df["Access Count"].sum() * 100
+    ).round(1)
+
+    # 水平棒グラフ：アクセス数をバーの外側にテキスト表示する
+    fig = px.bar(
+        top_df, x="Access Count", y=label, orientation="h",
+        color="Access Count", color_continuous_scale=color_scale,
+        text="Access Count",
+    )
+    fig.update_layout(
+        height=height,
+        yaxis={"categoryorder": "total ascending"},
+        coloraxis_showscale=False,
+    )
+    fig.update_traces(textposition="outside")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 表形式でも同データを表示し、数値の詳細を確認できるようにする
+    st.dataframe(top_df, use_container_width=True, hide_index=True)
+
+
 # ─────────────────────────────────────────
 # カスタムCSS – サイドバーのスタイル
 # ─────────────────────────────────────────
@@ -346,10 +399,11 @@ st.sidebar.markdown(
 # ─────────────────────────────────────────
 # タブ定義
 # ─────────────────────────────────────────
-tab_overview, tab_ranking, tab_user = st.tabs([
+tab_overview, tab_ranking, tab_user, tab_org = st.tabs([
     "📊 Overview",
     "🏆 Rankings",
-    "🔬 User & Org Analysis",
+    "🔬 User Analysis",
+    "🏢 Org Analysis",
 ])
 
 # ══════════════════════════════════════════
@@ -471,11 +525,11 @@ with tab_ranking:
 
 
 # ══════════════════════════════════════════
-# TAB 3 – USER & ORG ANALYSIS
-# ユーザー・組織単位でのアクセス傾向を深掘りするビュー
+# TAB 3 – USER ANALYSIS
+# 個人ユーザー単位でのアクセス傾向を深掘りするビュー
 # ══════════════════════════════════════════
 with tab_user:
-    st.title("🔬 User & Organization Analysis")
+    st.title("🔬 User Analysis")
 
     # 月次アクティブユーザー数：月ごとのユニークユーザー数の推移を折れ線グラフで表示
     st.subheader("👥 Monthly Active Users")
@@ -518,8 +572,70 @@ with tab_user:
 
     st.divider()
 
-    # 会社（所属）別アクセス：表とドーナツグラフを並べて表示
-    st.subheader("🏢 Access by Company (所属)")
+    # ── ユーザー個別分析 ──────────────────────────────────────────────────────
+    # ユーザーを選択すると、そのユーザーがよく見ているDashboard・Projectの
+    # Top 5 ランキングをグラフと表で表示する。
+    st.subheader("🔍 User Deep Dive")
+
+    # 表示名（display_name）でユーザーを選択できるようにする。
+    # 「表示名 (UserID)」形式にすることで同姓同名でも一意に識別できる。
+    user_options = (
+        df[["user", "display_name"]]
+        .drop_duplicates()
+        .sort_values("display_name")
+    )
+    # iterrows より apply の方がベクトル化されており、ユーザー数が多い場合でも高速に動作する
+    user_labels = (
+        user_options["display_name"] + " (" + user_options["user"] + ")"
+    ).tolist()
+    selected_label = st.selectbox(
+        "Select User",
+        options=user_labels,
+        index=0,
+        help="分析したいユーザーを選択してください。",
+    )
+
+    if selected_label:
+        # 選択ラベルの末尾の括弧内から user ID を逆引きする
+        selected_user_id = selected_label.split("(")[-1].rstrip(")")
+        df_selected = df[df["user"] == selected_user_id]
+
+        total_access = len(df_selected)
+        selected_name = df_selected["display_name"].iloc[0] if total_access > 0 else selected_user_id
+
+        st.markdown(
+            f'<div class="filter-badge">👤 {selected_name} &nbsp;·&nbsp; {total_access:,} accesses</div>',
+            unsafe_allow_html=True,
+        )
+        st.write("")  # スペーサー
+
+        if total_access == 0:
+            st.info("選択したユーザーのアクセスデータが見つかりません。")
+        else:
+            d1, d2 = st.columns(2)
+
+            # Dashboard Top 5 / Project Top 5 は処理が同一のため plot_top_n_section で共通化する
+            with d1:
+                plot_top_n_section(
+                    df_src=df_selected, col="workbook",
+                    label="Dashboard", icon="📚", color_scale="Greens",
+                )
+            with d2:
+                plot_top_n_section(
+                    df_src=df_selected, col="project",
+                    label="Project", icon="🌍", color_scale="Blues",
+                )
+
+
+# ══════════════════════════════════════════
+# TAB 4 – ORG ANALYSIS
+# 会社・部署単位でのアクセス傾向を深掘りするビュー
+# ══════════════════════════════════════════
+with tab_org:
+    st.title("🏢 Org Analysis")
+
+    # 会社（所属）別アクセス件数を降順で集計する。
+    # NaN 行は dropna で除外し、後続の表示・ヒートマップ両方で再利用する。
     comp_cnt = (
         df.groupby("company").size()
           .reset_index(name="count")
@@ -527,6 +643,8 @@ with tab_user:
           .dropna(subset=["company"])
     )
 
+    # 会社（所属）別アクセス：表とドーナツグラフを並べて表示
+    st.subheader("🏢 Access by Company (所属)")
     c1, c2 = st.columns(2)
     with c1:
         # make_ranking_df は value_counts() ベースのため、groupby 集計済みの comp_cnt には使えない。
@@ -540,45 +658,4 @@ with tab_user:
         fig.update_layout(height=380)
         st.plotly_chart(fig, use_container_width=True)
 
-    st.divider()
 
-    # 部署別アクセス：上位20部署を水平棒グラフで表示
-    st.subheader("🗂️ Access by Department (Dept)")
-    dept_cnt = (
-        df.groupby("dept").size()
-          .reset_index(name="count")
-          .sort_values("count", ascending=False)
-          .dropna(subset=["dept"])
-          .head(20)
-    )
-    st.plotly_chart(
-        plot_hbar(dept_cnt, x="count", y="dept", color_scale="Purples", height=480),
-        use_container_width=True,
-    )
-
-    st.divider()
-
-    # 会社×ダッシュボード ヒートマップ：上位15社×上位10ダッシュボードの利用状況を可視化
-    st.subheader("🔥 Company × Dashboard Usage Heatmap")
-    top_companies = comp_cnt.head(15)["company"].tolist()
-    top_workbooks = df["workbook"].value_counts().head(10).index.tolist()
-    heat_df = (
-        df[df["company"].isin(top_companies) & df["workbook"].isin(top_workbooks)]
-        .groupby(["company", "workbook"]).size()
-        .reset_index(name="count")
-        .pivot(index="company", columns="workbook", values="count")
-        .fillna(0)
-    )
-    st.plotly_chart(
-        plot_heatmap(
-            z=heat_df.values,
-            x_labels=heat_df.columns.tolist(),
-            y_labels=heat_df.index.tolist(),
-            colorscale="Blues",
-            hover_template="Company: %{y}<br>Workbook: %{x}<br>Count: %{z}<extra></extra>",
-            height=420,
-            xaxis_title="Workbook",
-            yaxis_title="Company",
-        ),
-        use_container_width=True,
-    )

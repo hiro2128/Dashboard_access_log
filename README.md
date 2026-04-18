@@ -111,15 +111,23 @@ openpyxl   # pandas の Excel 読み込みに必要
 
 ---
 
-### Tab 3 – User & Org Analysis（🔬）
+### Tab 3 – User Analysis（🔬）
 
 | セクション | 内容 |
 |-----------|------|
 | Monthly Active Users | 月次ユニークユーザー数の折れ線グラフ |
 | Heavy Users – Top 20 | アクセス数上位 20 名の表 ＋ 水平棒グラフ |
+| User Deep Dive | ユーザー選択 → Dashboard Top 5 ＋ Project Top 5 のグラフ・表 |
+
+---
+
+### Tab 4 – Org Analysis（🏢）
+
+| セクション | 内容 |
+|-----------|------|
 | Access by Company | 会社別ランキング表 ＋ 上位 12 社のドーナツグラフ |
 | Access by Department | 上位 20 部署の水平棒グラフ |
-| Company × Workbook Heatmap | 上位 15 社 × 上位 10 ワークブックの利用状況ヒートマップ |
+| Company × Dashboard Usage Heatmap | 上位 15 社 × 上位 10 ダッシュボードの利用状況ヒートマップ |
 
 ## コード構成
 
@@ -135,5 +143,6 @@ dashboard.py
 ├── サイドバー           # ファイルアップロード（任意）＋ グローバルフィルター
 ├── Tab 1 – Overview
 ├── Tab 2 – Rankings
-└── Tab 3 – User & Org Analysis
+├── Tab 3 – User Analysis
+└── Tab 4 – Org Analysis
 ```
